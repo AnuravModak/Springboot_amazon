@@ -1,65 +1,81 @@
-package com.amazon.QuizApp.Service;
+package com.example.order;
 
-import com.amazon.QuizApp.Entity.Inventory;
-import com.amazon.QuizApp.Entity.Order;
-import com.amazon.QuizApp.Entity.Product;
-import com.amazon.QuizApp.Repositories.InventoryRepository;
-import com.amazon.QuizApp.Repositories.OrderRepository;
-import com.amazon.QuizApp.Repositories.ProductRepository;
-import org.apache.catalina.User;
+import com.example.inventory.InventoryService;
+import com.example.model.Order;
+import com.example.model.Product;
+import com.example.payment.PaymentService;
+import com.example.repository.OrderRepository;
+import com.example.repository.ProductRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 @Service
 public class OrderService {
 
     @Autowired
-    private ProductRepository productRepository;
+    private PaymentService paymentService;
 
     @Autowired
-    private InventoryRepository inventoryRepository;
+    private InventoryService inventoryService;
+
+    @Autowired
+    private ProductRepository productRepository;
 
     @Autowired
     private OrderRepository orderRepository;
 
-    @Autowired
-    private PaymentService paymentService;
+    public List<Order> placeOrder(Long userId, List<Long> productIds) {
 
-    public void placeOrder(Long userId, List<Long> productIds) throws Exception {
-        double intAmount=0;
+        List<Order> orders = new ArrayList<>();
+        double totalAmount = 0;
 
-        for (Long id: productIds){
-            Product product = productRepository.findById(id)
-                    .orElseThrow(() -> new RuntimeException("Product not found"));
+        if (productIds == null || productIds.isEmpty()) {
+            return orders;
+        }
 
-            Inventory inventory = inventoryRepository.findById(id)
-                    .orElseThrow(() -> new RuntimeException("Inventory not found"));
+        for (Long productId : productIds) {
 
-            if (inventory.getAvailableQuantity()<=0){
-                throw new RuntimeException("Out of Stock");
+            Product product = productRepository.findById(productId).orElse(null);
+
+            if (product == null) {
+                continue;
             }
 
-            inventory.setAvailableQuantity(inventory.getAvailableQuantity()-1);
+            boolean reserved = inventoryService.reserveInventory(productId);
 
-            intAmount+= product.getPrice();
+            if (!reserved) {
+                continue;
+            }
 
-            paymentService.charge(userId, intAmount);
+            totalAmount += product.getPrice();
 
             Order order = new Order();
             order.setUserId(userId);
             order.setProductIds(productIds);
-            order.setTotalAmount(intAmount);
-            order.setStatus("COMPLETED");
+            order.setTotalAmount(totalAmount);
             order.setCreatedAt(LocalDateTime.now());
 
-            orderRepository.save(order);
+            if (totalAmount > 20000) {
+                order.setStatus("REVIEW");
+            } else {
+                order.setStatus("CREATED");
+            }
 
+            orders.add(order);
         }
 
-    }
+        boolean isPaid = paymentService.processPayment(userId, totalAmount, "USD");
 
+        if (isPaid) {
+            for (Order order : orders) {
+                orderRepository.save(order);
+            }
+        }
+
+        return orders;
+    }
 }
