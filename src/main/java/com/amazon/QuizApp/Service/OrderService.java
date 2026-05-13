@@ -1,11 +1,11 @@
-package com.amazon.QuizApp.Service;
+package com.example.order;
 
-import com.amazon.QuizApp.Entity.Inventory;
-import com.amazon.QuizApp.Entity.Order;
-import com.amazon.QuizApp.Entity.Product;
-import com.amazon.QuizApp.Repositories.InventoryRepository;
-import com.amazon.QuizApp.Repositories.OrderRepository;
-import com.amazon.QuizApp.Repositories.ProductRepository;
+import com.example.inventory.InventoryService;
+import com.example.model.Order;
+import com.example.model.Product;
+import com.example.payment.PaymentService;
+import com.example.repository.OrderRepository;
+import com.example.repository.ProductRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -17,54 +17,63 @@ import java.util.List;
 public class OrderService {
 
     @Autowired
-    private ProductRepository productRepository;
+    private PaymentService paymentService;
 
     @Autowired
-    private InventoryRepository inventoryRepository;
+    private InventoryService inventoryService;
+
+    @Autowired
+    private ProductRepository productRepository;
 
     @Autowired
     private OrderRepository orderRepository;
 
-    @Autowired
-    private PaymentService paymentService;
-
     public List<Order> placeOrder(Long userId, List<Long> productIds) {
 
         List<Order> orders = new ArrayList<>();
+        double totalAmount = 0;
 
-        double total = 0;
+        if (productIds == null || productIds.isEmpty()) {
+            return orders;
+        }
 
-        for (Long id : productIds) {
+        for (Long productId : productIds) {
 
-            Product product = productRepository.findById(id).orElse(null);
+            Product product = productRepository.findById(productId).orElse(null);
 
             if (product == null) {
                 continue;
             }
 
-            Inventory inventory = inventoryRepository.findById(id).orElse(null);
+            boolean reserved = inventoryService.reserveInventory(productId);
 
-            if (inventory != null && inventory.getAvailableQuantity() > 0) {
-
-                inventory.setAvailableQuantity(inventory.getAvailableQuantity() - 1);
-
-                total += product.getPrice();
-
-                Order order = new Order();
-                order.setUserId(userId);
-                order.setProductIds(productIds);
-                order.setTotalAmount(total);
-                order.setCreatedAt(LocalDateTime.now());
-                order.setStatus("CREATED");
-
-                orders.add(order);
+            if (!reserved) {
+                continue;
             }
+
+            totalAmount += product.getPrice();
+
+            Order order = new Order();
+            order.setUserId(userId);
+            order.setProductIds(productIds);
+            order.setTotalAmount(totalAmount);
+            order.setCreatedAt(LocalDateTime.now());
+
+            if (totalAmount > 20000) {
+                order.setStatus("REVIEW");
+            } else {
+                order.setStatus("CREATED");
+            }
+
+            orders.add(order);
         }
 
-        paymentService.processPayment(userId, total, "INR");
+        boolean isPaid = paymentService.processPayment(userId, totalAmount, "USD");
 
-        for (Order order : orders) {
-            orderRepository.save(order);
+        if (isPaid) {
+            for (Order order : orders) {
+                orderRepository.save(order);
+            }
         }
 
         return orders;
