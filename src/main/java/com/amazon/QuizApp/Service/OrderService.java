@@ -6,13 +6,12 @@ import com.amazon.QuizApp.Entity.Product;
 import com.amazon.QuizApp.Repositories.InventoryRepository;
 import com.amazon.QuizApp.Repositories.OrderRepository;
 import com.amazon.QuizApp.Repositories.ProductRepository;
-import org.apache.catalina.User;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 @Service
 public class OrderService {
@@ -29,37 +28,45 @@ public class OrderService {
     @Autowired
     private PaymentService paymentService;
 
-    public void placeOrder(Long userId, List<Long> productIds) throws Exception {
-        double intAmount=0;
+    public List<Order> placeOrder(Long userId, List<Long> productIds) {
 
-        for (Long id: productIds){
-            Product product = productRepository.findById(id)
-                    .orElseThrow(() -> new RuntimeException("Product not found"));
+        List<Order> orders = new ArrayList<>();
 
-            Inventory inventory = inventoryRepository.findById(id)
-                    .orElseThrow(() -> new RuntimeException("Inventory not found"));
+        double total = 0;
 
-            if (inventory.getAvailableQuantity()<=0){
-                throw new RuntimeException("Out of Stock");
+        for (Long id : productIds) {
+
+            Product product = productRepository.findById(id).orElse(null);
+
+            if (product == null) {
+                continue;
             }
 
-            inventory.setAvailableQuantity(inventory.getAvailableQuantity()-1);
+            Inventory inventory = inventoryRepository.findById(id).orElse(null);
 
-            intAmount+= product.getPrice();
+            if (inventory != null && inventory.getAvailableQuantity() > 0) {
 
-            paymentService.charge(userId, intAmount);
+                inventory.setAvailableQuantity(inventory.getAvailableQuantity() - 1);
 
-            Order order = new Order();
-            order.setUserId(userId);
-            order.setProductIds(productIds);
-            order.setTotalAmount(intAmount);
-            order.setStatus("COMPLETED");
-            order.setCreatedAt(LocalDateTime.now());
+                total += product.getPrice();
 
-            orderRepository.save(order);
+                Order order = new Order();
+                order.setUserId(userId);
+                order.setProductIds(productIds);
+                order.setTotalAmount(total);
+                order.setCreatedAt(LocalDateTime.now());
+                order.setStatus("CREATED");
 
+                orders.add(order);
+            }
         }
 
-    }
+        paymentService.processPayment(userId, total, "INR");
 
+        for (Order order : orders) {
+            orderRepository.save(order);
+        }
+
+        return orders;
+    }
 }
