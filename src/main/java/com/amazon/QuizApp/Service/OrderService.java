@@ -54,9 +54,10 @@ public class OrderService {
             order.setProductIds(productIds);
             order.setTotalAmount(intAmount);
             order.setStatus("COMPLETED");
-            order.setCreatedAt(LocalDateTime.now());
+            //order.setCreatedAt(LocalDateTime.now());
 
             orderRepository.save(order);
+            System.out.println("Order Saved...");
 
         }
 
